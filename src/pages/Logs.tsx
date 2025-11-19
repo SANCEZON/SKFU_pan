@@ -1,0 +1,172 @@
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { supabase } from '../lib/supabase'
+import Card from '../components/ui/Card'
+import Input from '../components/ui/Input'
+import Button from '../components/ui/Button'
+import { format } from 'date-fns'
+import { motion, AnimatePresence } from 'framer-motion'
+
+export default function Logs() {
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [actionTypeFilter, setActionTypeFilter] = useState('')
+
+  const queryClient = useQueryClient()
+
+  const { data: logs, isLoading } = useQuery({
+    queryKey: ['activity-logs', startDate, endDate, actionTypeFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from('activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200)
+
+      if (startDate) {
+        query = query.gte('created_at', `${startDate}T00:00:00`)
+      }
+      if (endDate) {
+        query = query.lte('created_at', `${endDate}T23:59:59`)
+      }
+      if (actionTypeFilter) {
+        query = query.eq('action_type', actionTypeFilter)
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+      return data
+    },
+  })
+
+  const clearLogsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('activity_logs').delete().neq('id', '')
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity-logs'] })
+    },
+  })
+
+  const actionTypes: { value: string; label: string }[] = [
+    { value: 'student_created', label: 'Создание студента' },
+    { value: 'student_updated', label: 'Изменение студента' },
+    { value: 'student_deleted', label: 'Удаление студента' },
+    { value: 'schedule_created', label: 'Создание пары' },
+    { value: 'schedule_updated', label: 'Изменение пары' },
+    { value: 'schedule_deleted', label: 'Удаление пары' },
+    { value: 'attendance_updated', label: 'Посещаемость' },
+  ]
+
+  return (
+    <div>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">Логи действий</h1>
+
+      <Card className="mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Input
+            label="Дата начала"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <Input
+            label="Дата окончания"
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Тип действия
+            </label>
+            <div className="relative">
+              <select
+                value={actionTypeFilter}
+                onChange={(e) => setActionTypeFilter(e.target.value)}
+                className="input pr-10 appearance-none"
+              >
+                <option value="">Все действия</option>
+                {actionTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                ▼
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (confirm('Очистить все логи?')) {
+                clearLogsMutation.mutate()
+              }
+            }}
+            disabled={clearLogsMutation.isPending}
+          >
+            {clearLogsMutation.isPending ? 'Очистка...' : 'Очистить логи'}
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        {isLoading ? (
+          <div className="text-center py-8 text-gray-500">Загрузка...</div>
+        ) : logs && logs.length > 0 ? (
+          <div className="space-y-3">
+            <AnimatePresence>
+              {logs.map((log: any) => (
+                <motion.div
+                  key={log.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow bg-white"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                          {actionTypes.find((a) => a.value === log.action_type)?.label || log.action_type}
+                        </span>
+                      </div>
+                    <p className="text-sm text-gray-600">
+                      Пользователь: {log.user_id || 'неизвестно'}
+                    </p>
+                      {log.details && (
+                        <p className="text-sm text-gray-500 mt-1">
+                        Детали: {formatDetails(log.details)}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-2">
+                        {format(new Date(log.created_at), 'd MMM yyyy, HH:mm:ss')}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">Нет логов</div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function formatDetails(details: any) {
+  if (!details) return '—'
+  if (typeof details !== 'object') return String(details)
+  return Object.entries(details)
+    .filter(([key]) => key !== 'автор' && key !== 'author')
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(', ')
+}
