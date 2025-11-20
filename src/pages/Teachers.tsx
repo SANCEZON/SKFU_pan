@@ -35,8 +35,8 @@ export default function Teachers() {
       setEditingTeacher(teacher)
       setFormData({
         full_name: teacher.full_name,
-        email: teacher.email || '',
-        phone: teacher.phone || '',
+        email: teacher.email ?? '',
+        phone: teacher.phone ?? '',
       })
     } else {
       setEditingTeacher(null)

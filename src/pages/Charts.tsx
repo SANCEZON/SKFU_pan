@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
-import { format, subDays, subWeeks, subMonths, startOfWeek, endOfWeek, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns'
+import { format, subWeeks, subMonths, startOfWeek, endOfWeek, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns'
 import { translateStatus } from '../utils/statusTranslations'
 import {
   BarChart,

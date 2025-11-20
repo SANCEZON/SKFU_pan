@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000'
 
 interface RequestOptions extends RequestInit {
   skipAuth?: boolean
@@ -20,9 +20,9 @@ class ApiClient {
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { skipAuth = false, ...fetchOptions } = options
     const url = `${API_URL}${endpoint}`
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...fetchOptions.headers,
+      ...(fetchOptions.headers as Record<string, string> || {}),
     }
 
     if (!skipAuth) {
@@ -110,7 +110,7 @@ class ApiClient {
     return response
   }
 
-  async logout(): void {
+  async logout(): Promise<void> {
     this.removeToken()
   }
 

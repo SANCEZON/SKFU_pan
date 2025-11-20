@@ -45,10 +45,10 @@ export default function Students() {
       setEditingStudent(student)
       setFormData({
         full_name: student.full_name,
-        telegram: student.telegram || '',
-        phone: student.phone || '',
+        telegram: student.telegram ?? '',
+        phone: student.phone ?? '',
         status: student.status,
-        group_id: student.group_id || '',
+        group_id: student.group_id ?? '',
       })
     } else {
       setEditingStudent(null)

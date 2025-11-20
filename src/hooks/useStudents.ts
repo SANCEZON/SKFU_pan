@@ -24,7 +24,17 @@ export function useCreateStudent() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: (student: StudentInsert) => createStudent(student),
+    mutationFn: (student: StudentInsert) => {
+      // Нормализуем данные: undefined -> null
+      const normalized: StudentInsert = {
+        ...student,
+        status: student.status || 'active',
+        telegram: student.telegram ?? null,
+        phone: student.phone ?? null,
+        group_id: student.group_id ?? null,
+      }
+      return createStudent(normalized)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['students'] })
     },

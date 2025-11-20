@@ -204,6 +204,8 @@ export default function Schedule() {
 
     const dataToSend = {
       ...formData,
+      type: formData.type || 'lecture',
+      week_number: formData.week_number || 1,
       start_date: formData.start_date && formData.start_date.trim() !== '' 
         ? formData.start_date 
         : null,
@@ -244,6 +246,8 @@ export default function Schedule() {
     // Преобразуем пустые строки в null для дат
     const dataToSend = {
       ...formData,
+      type: formData.type || 'lecture',
+      week_number: formData.week_number || 1,
       start_date: formData.start_date && formData.start_date.trim() !== '' 
         ? formData.start_date 
         : null,
@@ -365,7 +369,7 @@ export default function Schedule() {
                             }
                           }}
                           type="select"
-                          options={DAYS_OF_WEEK.map((day, idx) => ({ value: day, label: day }))}
+                          options={DAYS_OF_WEEK.map((day) => ({ value: day, label: day }))}
                           className="font-medium text-gray-700"
                         />
                         <span>•</span>

@@ -86,10 +86,15 @@ export default function Notes() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // Нормализуем данные: гарантируем boolean для is_pinned
+    const normalizedData = {
+      ...formData,
+      is_pinned: formData.is_pinned ?? false,
+    }
     if (editingNote) {
-      await updateMutation.mutateAsync({ id: editingNote.id, note: formData })
+      await updateMutation.mutateAsync({ id: editingNote.id, note: normalizedData })
     } else {
-      await createMutation.mutateAsync(formData)
+      await createMutation.mutateAsync(normalizedData)
     }
   }
 

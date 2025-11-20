@@ -171,16 +171,14 @@ export default function Reports() {
           <div className="space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900 mb-2">
-                {reportDetails.subject_name || reportDetails.schedule_sessions?.schedules?.subjects?.name || 'Предмет'}
+                {reportDetails.subject_name || 'Предмет'}
               </h3>
               <p className="text-sm text-gray-600">
-                {reportDetails.teacher_name || reportDetails.schedule_sessions?.schedules?.teachers?.full_name || 'Преподаватель'}
+                {reportDetails.teacher_name || 'Преподаватель'}
               </p>
               <p className="text-sm text-gray-600">
-                {reportDetails.date && format(new Date(reportDetails.date), 'd MMMM yyyy')}
-                {reportDetails.schedule_sessions?.date && format(new Date(reportDetails.schedule_sessions.date), 'd MMMM yyyy')}{' '}
-                • {reportDetails.start_time || reportDetails.schedule_sessions?.start_time} -{' '}
-                {reportDetails.end_time || reportDetails.schedule_sessions?.end_time}
+                {reportDetails.date && format(new Date(reportDetails.date), 'd MMMM yyyy')}{' '}
+                • {reportDetails.start_time || ''} - {reportDetails.end_time || ''}
               </p>
             </div>
 
