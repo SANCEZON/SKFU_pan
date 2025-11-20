@@ -73,7 +73,7 @@ export function getWeekDatesInRange(
   rangeEnd: Date
 ): Date[] {
   const dates: Date[] = []
-  let currentDate = new Date(rangeStart)
+  // let currentDate = new Date(rangeStart) // Не используется
 
   // Calculate which week the start date is in
   const startWeek = calculateCurrentWeek(startDate, rangeStart)

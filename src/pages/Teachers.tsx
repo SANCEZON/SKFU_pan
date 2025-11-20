@@ -57,13 +57,19 @@ export default function Teachers() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      // Нормализуем данные: undefined -> null
+      const normalizedData = {
+        ...formData,
+        email: formData.email || null,
+        phone: formData.phone || null,
+      }
       if (editingTeacher) {
         await updateMutation.mutateAsync({
           id: editingTeacher.id,
-          teacher: formData,
+          teacher: normalizedData,
         })
       } else {
-        await createMutation.mutateAsync(formData)
+        await createMutation.mutateAsync(normalizedData)
       }
       handleCloseModal()
     } catch (error) {

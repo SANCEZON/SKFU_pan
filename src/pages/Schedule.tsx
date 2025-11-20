@@ -616,8 +616,8 @@ export default function Schedule() {
           />
           <Select
             label="Тип пары"
-            value={formData.type}
-            onChange={(value) => setFormData({ ...formData, type: value as any })}
+            value={formData.type || 'lecture'}
+            onChange={(value) => setFormData({ ...formData, type: (value || 'lecture') as 'lecture' | 'lab' | 'practice' })}
             options={[
               { value: 'lecture', label: 'Лекция' },
               { value: 'lab', label: 'Лабораторная' },
@@ -757,8 +757,8 @@ export default function Schedule() {
           />
           <Select
             label="Тип пары"
-            value={formData.type}
-            onChange={(value) => setFormData({ ...formData, type: value as any })}
+            value={formData.type || 'lecture'}
+            onChange={(value) => setFormData({ ...formData, type: (value || 'lecture') as 'lecture' | 'lab' | 'practice' })}
             options={[
               { value: 'lecture', label: 'Лекция' },
               { value: 'lab', label: 'Лабораторная' },

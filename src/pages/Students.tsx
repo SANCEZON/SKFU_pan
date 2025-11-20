@@ -71,13 +71,20 @@ export default function Students() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      // Нормализуем данные: undefined -> null
+      const normalizedData = {
+        ...formData,
+        telegram: formData.telegram || null,
+        phone: formData.phone || null,
+        group_id: formData.group_id || null,
+      }
       if (editingStudent) {
         await updateMutation.mutateAsync({
           id: editingStudent.id,
-          student: formData,
+          student: normalizedData,
         })
       } else {
-        await createMutation.mutateAsync(formData)
+        await createMutation.mutateAsync(normalizedData)
       }
       handleCloseModal()
     } catch (error) {

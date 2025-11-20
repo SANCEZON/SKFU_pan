@@ -1,6 +1,6 @@
 import { api } from '../lib/api'
-import { format, addDays } from 'date-fns'
-import { calculateCurrentWeek, getWeekDatesInRange } from '../utils/scheduleCycle'
+import { format } from 'date-fns'
+import { calculateCurrentWeek } from '../utils/scheduleCycle'
 
 export interface Schedule {
   id: string

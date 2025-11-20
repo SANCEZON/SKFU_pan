@@ -52,14 +52,14 @@ export async function createInvitation(payload: Pick<InvitationInsert, 'email' |
   return api.post<Invitation>('/api/invitations', payload)
 }
 
-export async function updateInvitationStatus(id: string, status: Invitation['status'], userId?: string | null): Promise<Invitation> {
+export async function updateInvitationStatus(id: string, status: Invitation['status'], _userId?: string | null): Promise<Invitation> {
   if (status === 'accepted') {
     return api.put<Invitation>(`/api/invitations/${id}/approve`)
   }
   return api.put<Invitation>(`/api/invitations/${id}/status`, { status })
 }
 
-export async function logApprovalAction(entry: {
+export async function logApprovalAction(_entry: {
   invitation_id?: string | null
   target_email: string
   action: ApprovalLog['action']

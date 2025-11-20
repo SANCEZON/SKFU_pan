@@ -13,7 +13,7 @@ export interface Note {
 export type NoteInsert = Omit<Note, 'id' | 'user_id' | 'created_at' | 'updated_at'>
 export type NoteUpdate = Partial<NoteInsert>
 
-export async function getNotes(userId: string): Promise<Note[]> {
+export async function getNotes(_userId: string): Promise<Note[]> {
   return api.get<Note[]>('/api/notes')
 }
 

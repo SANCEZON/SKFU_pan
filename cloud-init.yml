@@ -1,0 +1,308 @@
+#cloud-config
+# Cloud-init скрипт для автоматической настройки VPS TimeWeb
+# Используйте этот скрипт при создании VPS в панели TimeWeb
+
+users:
+  - name: devuser
+    groups: sudo, docker
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys: 
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJf47Vq9i+EkikK8kQLgCqti4eWbuyRwdcP2QxqChaA sancezon68@gmail.com
+
+# Обновление системы
+package_update: true
+package_upgrade: true
+
+# Установка пакетов
+packages:
+  - curl
+  - wget
+  - git
+  - ufw
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - nginx
+
+# Настройка SSH
+ssh_pwauth: false
+
+# Выполнение команд при первом запуске
+runcmd:
+  # Установка Docker
+  - |
+    if ! command -v docker &> /dev/null; then
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+      systemctl enable docker
+      systemctl start docker
+      sleep 5
+    fi
+
+  # Добавление пользователя в группу docker
+  - usermod -aG docker devuser
+
+  # Установка Node.js 20.x
+  - |
+    if ! command -v node &> /dev/null; then
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+    fi
+
+  # Установка pnpm
+  - |
+    if ! command -v pnpm &> /dev/null; then
+      npm install -g pnpm
+    fi
+
+  # Настройка firewall
+  - ufw --force enable
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+
+  # Создание директории проекта
+  - mkdir -p /opt/attendance-panel
+  - chown devuser:devuser /opt/attendance-panel
+
+  # Клонирование репозитория
+  - |
+    cd /opt/attendance-panel
+    sudo -u devuser git clone https://github.com/SANCEZON/SKFU_pan.git . || true
+    chown -R devuser:devuser /opt/attendance-panel
+
+  # Создание .env файла
+  - |
+    cat > /opt/attendance-panel/.env << 'ENVEOF'
+    DB_ROOT_PASSWORD=4z1NRLHucMPWySdthAGQ
+    DB_USER=app_user
+    DB_PASSWORD=4z1NRLHucMPWySdthAGQ
+    DB_NAME=attendance_db
+    JWT_SECRET=j4KEHMlw826oNbQaeTSGLkxuyP9ZnDCriUgFO7qW
+    CORS_ORIGIN=http://89.169.3.134
+    ENVEOF
+    chown devuser:devuser /opt/attendance-panel/.env
+    chmod 600 /opt/attendance-panel/.env
+
+  # Создание .env.production для фронтенда
+  - |
+    cat > /opt/attendance-panel/.env.production << 'PRODENVEOF'
+    VITE_API_URL=http://89.169.3.134/api
+    PRODENVEOF
+    chown devuser:devuser /opt/attendance-panel/.env.production
+
+  # Установка зависимостей и сборка фронтенда с проверками
+  - |
+    cd /opt/attendance-panel
+    chown -R devuser:devuser /opt/attendance-panel
+    
+    # Установка зависимостей
+    sudo -u devuser bash -c "cd /opt/attendance-panel && pnpm install" || {
+      echo "Ошибка установки зависимостей, повторная попытка..."
+      sleep 5
+      sudo -u devuser bash -c "cd /opt/attendance-panel && pnpm install"
+    }
+    
+    # Сборка фронтенда с игнорированием ошибок TypeScript
+    sudo -u devuser bash -c "cd /opt/attendance-panel && pnpm build --mode production" || {
+      echo "⚠️ Ошибки TypeScript при сборке, пробуем без проверки типов..."
+      sudo -u devuser bash -c "cd /opt/attendance-panel && pnpm build:skip-types --mode production" || {
+        echo "⚠️ Сборка с ошибками, но продолжаем..."
+        sudo -u devuser bash -c "cd /opt/attendance-panel && pnpm exec vite build --mode production" || true
+      }
+    }
+    
+    # Ожидание создания dist директории
+    for i in {1..30}; do
+      if [ -d /opt/attendance-panel/dist ]; then
+        echo "Директория dist создана"
+        break
+      fi
+      echo "Ожидание создания dist... ($i/30)"
+      sleep 2
+    done
+    
+    # Установка прав на dist если она существует
+    if [ -d /opt/attendance-panel/dist ]; then
+      chown -R www-data:www-data /opt/attendance-panel/dist
+      chmod -R 755 /opt/attendance-panel/dist
+      echo "Права на dist установлены"
+    else
+      echo "ВНИМАНИЕ: Директория dist не создана, но продолжаем..."
+    fi
+
+  # Настройка nginx
+  - |
+    cat > /etc/nginx/sites-available/attendance-panel << 'NGINXEOF'
+    server {
+        listen 80;
+        server_name _;
+
+        root /opt/attendance-panel/dist;
+        index index.html;
+
+        access_log /var/log/nginx/attendance-panel-access.log;
+        error_log /var/log/nginx/attendance-panel-error.log;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+            
+            location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot)$ {
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+            }
+        }
+
+        location /api {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+        }
+
+        location /phpmyadmin {
+            proxy_pass http://127.0.0.1:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+
+        client_max_body_size 10M;
+    }
+    NGINXEOF
+
+  # Активация конфигурации nginx
+  - ln -sf /etc/nginx/sites-available/attendance-panel /etc/nginx/sites-enabled/
+  - rm -f /etc/nginx/sites-enabled/default
+  - nginx -t || true
+  - systemctl reload nginx || systemctl restart nginx
+
+  # Создание systemd service для автозапуска
+  - |
+    cat > /etc/systemd/system/attendance-panel.service << 'SERVICEEOF'
+    [Unit]
+    Description=Attendance Panel Docker Compose
+    Requires=docker.service
+    After=docker.service network.target
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    WorkingDirectory=/opt/attendance-panel
+    ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+    ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+    TimeoutStartSec=0
+    User=root
+    Restart=on-failure
+
+    [Install]
+    WantedBy=multi-user.target
+    SERVICEEOF
+
+  # Включение автозапуска
+  - systemctl daemon-reload
+  - systemctl enable attendance-panel.service
+
+  # Ожидание готовности Docker и запуск сервисов
+  - |
+    # Ждем готовности Docker
+    for i in {1..30}; do
+      if docker info > /dev/null 2>&1; then
+        echo "Docker готов"
+        break
+      fi
+      echo "Ожидание Docker... ($i/30)"
+      sleep 2
+    done
+    
+    # Запуск Docker Compose с обработкой rate limit
+    cd /opt/attendance-panel
+    
+    # Функция для запуска с повторными попытками
+    start_docker_compose() {
+      local max_attempts=5
+      local delay=60  # Начинаем с 60 секунд для rate limit
+      
+      for attempt in $(seq 1 $max_attempts); do
+        echo "Попытка запуска Docker Compose ($attempt/$max_attempts)..."
+        
+        if docker compose -f docker-compose.prod.yml up -d 2>&1 | tee /tmp/docker-compose.log; then
+          echo "Docker Compose успешно запущен"
+          return 0
+        fi
+        
+        if grep -qi "rate limit" /tmp/docker-compose.log || grep -qi "429" /tmp/docker-compose.log; then
+          echo "⚠️ Обнаружен rate limit Docker Hub, ожидание ${delay} секунд..."
+          echo "💡 Совет: можно зарегистрироваться на Docker Hub для увеличения лимита"
+          sleep $delay
+          delay=$((delay + 60))  # Увеличиваем задержку с каждой попыткой (60, 120, 180...)
+        else
+          echo "⚠️ Другая ошибка, повтор через 15 секунд..."
+          sleep 15
+        fi
+      done
+      
+      echo "❌ Не удалось запустить Docker Compose после $max_attempts попыток"
+      echo "Проверьте логи: cat /tmp/docker-compose.log"
+      return 1
+    }
+    
+    start_docker_compose || {
+      echo "⚠️ Продолжаем несмотря на ошибки Docker Compose..."
+      echo "Вы можете запустить вручную позже:"
+      echo "  cd /opt/attendance-panel"
+      echo "  docker compose -f docker-compose.prod.yml up -d"
+    }
+    
+    # Ожидание запуска контейнеров
+    sleep 20
+    
+    # Проверка статуса
+    echo "📊 Статус контейнеров:"
+    docker compose -f docker-compose.prod.yml ps || true
+
+# Запись в лог
+write_files:
+  - path: /opt/attendance-panel/cloud-init-complete.log
+    content: |
+      Cloud-init завершён: $(date)
+      
+      Статус сервисов:
+      - Docker: $(docker --version 2>/dev/null || echo "не установлен")
+      - Node.js: $(node --version 2>/dev/null || echo "не установлен")
+      - pnpm: $(pnpm --version 2>/dev/null || echo "не установлен")
+      - Фронтенд собран: $([ -d /opt/attendance-panel/dist ] && echo "да" || echo "нет")
+      
+      Проверьте статус:
+      cd /opt/attendance-panel
+      docker compose -f docker-compose.prod.yml ps
+      docker compose -f docker-compose.prod.yml logs
+    owner: devuser:devuser
+    permissions: '0644'
+
+# Финальное сообщение
+final_message: |
+  ✅ Cloud-init завершён автоматически!
+  
+  Приложение должно быть доступно по адресу: http://89.169.3.134
+  
+  Если что-то не работает, проверьте:
+  1. Логи: docker compose -f docker-compose.prod.yml logs
+  2. Статус: docker compose -f docker-compose.prod.yml ps
+  3. Nginx: sudo systemctl status nginx

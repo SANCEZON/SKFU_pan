@@ -24,7 +24,7 @@ export async function getActivityLogs(limit = 100): Promise<ActivityLog[]> {
   return api.get<ActivityLog[]>(`/api/logs?limit=${limit}`)
 }
 
-export async function logActivity(entry: {
+export async function logActivity(_entry: {
   action: ActivityAction
   entityType: string
   entityId?: string | null
