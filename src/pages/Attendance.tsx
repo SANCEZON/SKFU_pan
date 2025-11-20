@@ -1,22 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { getScheduleSessions } from '../services/schedules'
 import { getStudents } from '../services/students'
-import { getAttendanceForSession, bulkUpsertAttendanceRecords, createReport, getAbsenceReasons } from '../services/attendance'
+import { getAttendanceForSession, bulkUpsertAttendanceRecords, getAbsenceReasons } from '../services/attendance'
+import { createReport } from '../services/reports'
 import { useAuth } from '../contexts/AuthContext'
 import { logActivity } from '../services/activityLogs'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import { format, addDays, subDays } from 'date-fns'
-import { Database } from '../types/database.types'
+import type { AttendanceRecordInsert } from '../services/attendance'
+import type { Student } from '../services/students'
 
-type Student = Database['public']['Tables']['students']['Row']
-type AttendanceRecordInsert = Database['public']['Tables']['attendance_records']['Insert']
-type AbsenceReason = Database['public']['Tables']['absence_reasons']['Row']
-
-interface StudentAttendance extends Student {
+interface StudentAttendance extends Omit<Student, 'status'> {
   status: 'present' | 'absent' | 'late' | 'vacation' | 'sick'
   reason_id?: string
   note?: string
@@ -30,25 +28,22 @@ export default function Attendance() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
 
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const weekStart = format(subDays(new Date(), 7), 'yyyy-MM-dd')
+  const weekEnd = format(addDays(new Date(), 30), 'yyyy-MM-dd')
+
+  const { data: availableSessions, isLoading: sessionsLoading } = useQuery({
+    queryKey: ['available-sessions', weekStart, weekEnd],
+    queryFn: () => getScheduleSessions(weekStart, weekEnd),
+  })
+
   const { data: session } = useQuery({
     queryKey: ['session', sessionId],
     queryFn: async () => {
-      if (!sessionId) return null
-      const { data, error } = await supabase
-        .from('schedule_sessions')
-        .select(`
-          *,
-          schedules (
-            subjects (name),
-            teachers (full_name)
-          )
-        `)
-        .eq('id', sessionId)
-        .single()
-      if (error) throw error
-      return data
+      if (!sessionId || !availableSessions) return null
+      return availableSessions.find((s: any) => s.id === sessionId) || null
     },
-    enabled: !!sessionId,
+    enabled: !!sessionId && !!availableSessions,
   })
 
   const { data: students } = useQuery({
@@ -65,37 +60,6 @@ export default function Attendance() {
   const { data: absenceReasons } = useQuery({
     queryKey: ['absence-reasons'],
     queryFn: getAbsenceReasons,
-  })
-
-  const today = format(new Date(), 'yyyy-MM-dd')
-  const weekStart = format(subDays(new Date(), 7), 'yyyy-MM-dd')
-  const weekEnd = format(addDays(new Date(), 30), 'yyyy-MM-dd')
-
-  const { data: availableSessions, isLoading: sessionsLoading } = useQuery({
-    queryKey: ['available-sessions', weekStart, weekEnd],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('schedule_sessions')
-        .select(`
-          *,
-          schedules (
-            subjects (name),
-            teachers (full_name)
-          )
-        `)
-        .gte('date', weekStart)
-        .lte('date', weekEnd)
-        .eq('is_cancelled', false)
-        .order('date')
-        .order('start_time')
-      
-      if (error) {
-        console.error('Error fetching sessions:', error)
-        throw error
-      }
-      console.log('Available sessions:', data)
-      return data
-    },
   })
 
   useEffect(() => {
@@ -253,10 +217,10 @@ export default function Attendance() {
                 >
                   <div>
                     <p className="font-medium text-gray-900">
-                      {session.schedules?.subjects?.name || 'Предмет'}
+                      {session.subject_name || 'Предмет'}
                     </p>
                     <p className="text-sm text-gray-600 mt-1">
-                      {session.schedules?.teachers?.full_name || 'Преподаватель'} • {session.start_time} - {session.end_time}
+                      {session.teacher_name || 'Преподаватель'} • {session.start_time} - {session.end_time}
                       {session.room && ` • ${session.room}`}
                     </p>
                   </div>
@@ -280,14 +244,14 @@ export default function Attendance() {
                 >
                   <div>
                     <p className="font-medium text-gray-900">
-                      {session.schedules?.subjects?.name || 'Предмет'}
+                      {session.subject_name || 'Предмет'}
                     </p>
                     <p className="text-sm text-gray-600 mt-1">
                       {format(new Date(session.date), 'd MMMM yyyy')} • {session.start_time} - {session.end_time}
                       {session.room && ` • ${session.room}`}
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
-                      {session.schedules?.teachers?.full_name || 'Преподаватель'}
+                      {session.teacher_name || 'Преподаватель'}
                     </p>
                   </div>
                   <Link to={`/attendance?session=${session.id}`}>
@@ -310,14 +274,14 @@ export default function Attendance() {
                 >
                   <div>
                     <p className="font-medium text-gray-900">
-                      {session.schedules?.subjects?.name || 'Предмет'}
+                      {session.subject_name || 'Предмет'}
                     </p>
                     <p className="text-sm text-gray-600 mt-1">
                       {format(new Date(session.date), 'd MMMM yyyy')} • {session.start_time} - {session.end_time}
                       {session.room && ` • ${session.room}`}
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
-                      {session.schedules?.teachers?.full_name || 'Преподаватель'}
+                      {session.teacher_name || 'Преподаватель'}
                     </p>
                   </div>
                   <Link to={`/attendance?session=${session.id}`}>
@@ -362,7 +326,7 @@ export default function Attendance() {
           <h1 className="text-3xl font-bold text-gray-900">Проверка посещаемости</h1>
           {session && (
             <p className="text-gray-600 mt-2">
-              {session.schedules?.subjects?.name || 'Предмет'} •{' '}
+              {session.subject_name || 'Предмет'} •{' '}
               {format(new Date(session.date), 'd MMMM yyyy')} • {session.start_time} - {session.end_time}
             </p>
           )}

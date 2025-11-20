@@ -257,7 +257,10 @@ export default function Invitations() {
             {pendingProfiles && pendingProfiles.length > 0 ? (
               pendingProfiles.map((profile) => (
                 <div key={profile.user_id} className="p-4 border rounded-lg bg-gray-50">
-                  <p className="font-semibold text-gray-900">{profile.full_name || profile.user_id}</p>
+                  <p className="font-semibold text-gray-900">{profile.full_name || profile.user_email || profile.user_id}</p>
+                  {profile.user_email && (
+                    <p className="text-sm text-gray-500">{profile.user_email}</p>
+                  )}
                   <p className="text-sm text-gray-500">
                     С {format(new Date(profile.created_at), 'd MMM yyyy, HH:mm', { locale: ru })}
                   </p>

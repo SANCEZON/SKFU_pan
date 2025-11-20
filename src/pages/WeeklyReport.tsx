@@ -47,17 +47,16 @@ export default function WeeklyReport() {
     if (!data || data.length === 0) return
 
     const rows = data.map((record) => ({
-      Дата: record.schedule_sessions?.date
-        ? format(new Date(record.schedule_sessions.date), 'dd.MM.yyyy')
-        : '—',
-      Предмет: record.schedule_sessions?.schedules?.subjects?.name || '—',
-      Преподаватель: record.schedule_sessions?.schedules?.teachers?.full_name || '—',
-      Время: record.schedule_sessions
-        ? `${record.schedule_sessions.start_time} - ${record.schedule_sessions.end_time}`
-        : '—',
-      Студент: record.students?.full_name || '—',
+      Дата: record.session_date ? format(new Date(record.session_date), 'dd.MM.yyyy') : '—',
+      Предмет: record.subject_name || '—',
+      Преподаватель: record.teacher_name || '—',
+      Время:
+        record.start_time && record.end_time
+          ? `${record.start_time} - ${record.end_time}`
+          : '—',
+      Студент: record.student_name || '—',
       Статус: translateStatus(record.status),
-      Причина: record.absence_reasons?.name || 'не указана',
+      Причина: record.reason_name || 'не указана',
       Заметка: record.note || '',
     }))
 
@@ -203,26 +202,29 @@ function groupWeeklyData(records: WeeklyAttendanceRecord[]): DayGroup[] {
   const map = new Map<string, Map<string, SessionGroup>>()
 
   records.forEach((record) => {
-    const session = record.schedule_sessions
-    if (!session || !session.date) return
-    if (!map.has(session.date)) {
-      map.set(session.date, new Map())
+    if (!record.session_date || !record.session_id) return
+
+    if (!map.has(record.session_date)) {
+      map.set(record.session_date, new Map())
     }
-    const sessionsMap = map.get(session.date)!
-    if (!sessionsMap.has(session.id)) {
-      sessionsMap.set(session.id, {
-        id: session.id,
-        subject: session.schedules?.subjects?.name || 'Предмет',
-        teacher: session.schedules?.teachers?.full_name || 'Преподаватель',
-        time: `${session.start_time} - ${session.end_time}`,
-        room: session.room,
+    const sessionsMap = map.get(record.session_date)!
+    if (!sessionsMap.has(record.session_id)) {
+      sessionsMap.set(record.session_id, {
+        id: record.session_id,
+        subject: record.subject_name || 'Предмет',
+        teacher: record.teacher_name || 'Преподаватель',
+        time:
+          record.start_time && record.end_time
+            ? `${record.start_time} - ${record.end_time}`
+            : '—',
+        room: record.room,
         absences: [],
       })
     }
-    sessionsMap.get(session.id)!.absences.push({
-      student: record.students?.full_name || 'Студент',
+    sessionsMap.get(record.session_id)!.absences.push({
+      student: record.student_name || 'Студент',
       status: record.status,
-      reason: record.absence_reasons?.name || 'не указана',
+      reason: record.reason_name || 'не указана',
       note: record.note,
     })
   })
@@ -246,9 +248,9 @@ function buildSummary(records: WeeklyAttendanceRecord[]) {
   const studentSet = new Set<string>()
 
   records.forEach((record) => {
-    const date = record.schedule_sessions?.date
+    const date = record.session_date
     if (date) daySet.add(date)
-    const student = record.students?.full_name
+    const student = record.student_name
     if (student) studentSet.add(student)
   })
 

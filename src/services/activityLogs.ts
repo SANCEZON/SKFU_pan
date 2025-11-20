@@ -1,5 +1,4 @@
-import { supabase } from '../lib/supabase'
-import { Json } from '../types/database.types'
+import { api } from '../lib/api'
 
 export type ActivityAction =
   | 'student_created'
@@ -10,32 +9,29 @@ export type ActivityAction =
   | 'schedule_deleted'
   | 'attendance_updated'
 
-interface LogEntry {
+export interface ActivityLog {
+  id: string
+  user_id: string
+  action_type: string
+  entity_type: string
+  entity_id?: string | null
+  details?: any
+  created_at: string
+  user_email?: string
+}
+
+export async function getActivityLogs(limit = 100): Promise<ActivityLog[]> {
+  return api.get<ActivityLog[]>(`/api/logs?limit=${limit}`)
+}
+
+export async function logActivity(entry: {
   action: ActivityAction
   entityType: string
   entityId?: string | null
-  details?: Json
+  details?: any
   description?: string
+}): Promise<void> {
+  // Логирование теперь происходит на сервере автоматически
+  // Эта функция оставлена для совместимости, но не делает ничего
+  // В будущем можно добавить клиентское логирование если нужно
 }
-
-export async function logActivity(entry: LogEntry) {
-  const { data: userData } = await supabase.auth.getUser()
-  const user = userData.user
-  if (!user) return
-
-  const { error } = await supabase.from('activity_logs').insert({
-    user_id: user.id,
-    action_type: entry.action,
-    entity_type: entry.entityType,
-    entity_id: entry.entityId || null,
-    details: entry.details || {
-      автор: user.email,
-      описание: entry.description,
-    },
-  })
-
-  if (error) {
-    console.error('Failed to log activity:', error)
-  }
-}
-

@@ -1,27 +1,32 @@
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
+import { api } from '../lib/api'
 
-type Report = Database['public']['Tables']['reports']['Row']
-type AttendanceRecordRow = Database['public']['Tables']['attendance_records']['Row']
+export interface WeeklyAttendanceRecord {
+  id: string
+  status: string
+  note?: string | null
+  session_id: string
+  student_id: string
+  student_name?: string | null
+  session_date?: string | null
+  start_time?: string | null
+  end_time?: string | null
+  room?: string | null
+  subject_name?: string | null
+  teacher_name?: string | null
+  reason_name?: string | null
+}
 
-export interface WeeklyAttendanceRecord extends AttendanceRecordRow {
-  students: {
-    full_name: string | null
-  } | null
-  schedule_sessions: {
-    id: string
-    date: string
-    start_time: string
-    end_time: string
-    room: string | null
-    schedules: {
-      subjects: { name: string | null } | null
-      teachers: { full_name: string | null } | null
-    } | null
-  } | null
-  absence_reasons: {
-    name: string | null
-  } | null
+export interface Report {
+  id: string
+  session_id: string
+  created_by: string
+  created_at: string
+  updated_at: string
+  date?: string
+  start_time?: string
+  end_time?: string
+  subject_name?: string
+  teacher_name?: string
 }
 
 export async function getReports(filters?: {
@@ -29,108 +34,36 @@ export async function getReports(filters?: {
   endDate?: string
   subjectId?: string
   teacherId?: string
-}) {
-  let query = supabase
-    .from('reports')
-    .select(`
-      *,
-      schedule_sessions (
-        id,
-        date,
-        start_time,
-        end_time,
-        schedules (
-          subjects (name),
-          teachers (full_name)
-        )
-      )
-    `)
-    .order('created_at', { ascending: false })
-
-  // Фильтруем только если даты указаны и не пустые
-  if (filters?.startDate && filters.startDate.trim() !== '') {
-    // Добавляем время начала дня для корректной фильтрации
-    const startDateTime = `${filters.startDate}T00:00:00.000Z`
-    query = query.gte('created_at', startDateTime)
-  }
-  if (filters?.endDate && filters.endDate.trim() !== '') {
-    // Добавляем время конца дня для корректной фильтрации
-    const endDateTime = `${filters.endDate}T23:59:59.999Z`
-    query = query.lte('created_at', endDateTime)
-  }
-
-  const { data, error } = await query
-  if (error) {
-    console.error('Error fetching reports:', error)
-    throw error
-  }
-  
-  console.log('Fetched reports:', data?.length || 0, 'reports')
-  return data || []
+}): Promise<Report[]> {
+  const params = new URLSearchParams()
+  if (filters?.startDate) params.append('startDate', filters.startDate)
+  if (filters?.endDate) params.append('endDate', filters.endDate)
+  const query = params.toString()
+  return api.get<Report[]>(`/api/reports${query ? `?${query}` : ''}`)
 }
 
-export async function getReport(id: string) {
-  const { data, error } = await supabase
-    .from('reports')
-    .select(`
-      *,
-      schedule_sessions (
-        *,
-        schedules (
-          subjects (name),
-          teachers (full_name)
-        )
-      )
-    `)
-    .eq('id', id)
-    .single()
-
-  if (error) throw error
-  return data
+export async function getReport(id: string): Promise<Report> {
+  return api.get<Report>(`/api/reports/${id}`)
 }
 
-export async function deleteReport(id: string) {
-  const { error } = await supabase
-    .from('reports')
-    .delete()
-    .eq('id', id)
-  
-  if (error) throw error
+export async function createReport(data: { session_id: string; created_by: string }): Promise<Report> {
+  return api.post<Report>('/api/reports', data)
 }
 
-export async function getWeeklyAttendanceReport(startDate: string, endDate: string) {
-  const { data, error } = await supabase
-    .from('attendance_records')
-    .select(`
-      id,
-      status,
-      note,
-      session_id,
-      students (full_name),
-      schedule_sessions (
-        id,
-        date,
-        start_time,
-        end_time,
-        room,
-        schedules (
-          subjects (name),
-          teachers (full_name)
-        )
-      ),
-      absence_reasons (name)
-    `)
-    .gte('schedule_sessions.date', startDate)
-    .lte('schedule_sessions.date', endDate)
-    .neq('status', 'present')
-    .order('date', { referencedTable: 'schedule_sessions' })
-    .order('start_time', { referencedTable: 'schedule_sessions' })
-
-  if (error) {
-    console.error('Error fetching weekly report:', error)
-    throw error
-  }
-
-  return (data || []) as WeeklyAttendanceRecord[]
+export async function deleteReport(id: string): Promise<void> {
+  return api.delete(`/api/reports/${id}`)
 }
 
+type WeeklyAttendanceRecordResponse = WeeklyAttendanceRecord & {
+  date?: string | null
+}
+
+export async function getWeeklyAttendanceReport(startDate: string, endDate: string): Promise<WeeklyAttendanceRecord[]> {
+  const records = await api.get<WeeklyAttendanceRecordResponse[]>(
+    `/api/reports/weekly?startDate=${startDate}&endDate=${endDate}`
+  )
+  return records.map((record) => ({
+    ...record,
+    session_date: record.session_date ?? record.date ?? null,
+  }))
+}

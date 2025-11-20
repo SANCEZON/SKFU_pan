@@ -1,184 +1,86 @@
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
-import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns'
+import { api } from '../lib/api'
+import { format, addDays } from 'date-fns'
 import { calculateCurrentWeek, getWeekDatesInRange } from '../utils/scheduleCycle'
-import { logActivity } from './activityLogs'
 
-type Schedule = Database['public']['Tables']['schedules']['Row']
-type ScheduleInsert = Database['public']['Tables']['schedules']['Insert']
-type ScheduleSession = Database['public']['Tables']['schedule_sessions']['Row']
-type ScheduleSessionInsert = Database['public']['Tables']['schedule_sessions']['Insert']
-
-export async function getSchedules(weekNumber?: 1 | 2) {
-  let query = supabase
-    .from('schedules')
-    .select(`
-      *,
-      subjects (name, code),
-      teachers (full_name, email)
-    `)
-
-  if (weekNumber) {
-    query = query.eq('week_number', weekNumber)
-  }
-
-  const { data, error } = await query
-    .order('day_of_week')
-    .order('start_time')
-  
-  if (error) throw error
-  return data
+export interface Schedule {
+  id: string
+  subject_id: string
+  teacher_id?: string | null
+  day_of_week: number
+  start_time: string
+  end_time: string
+  room?: string | null
+  type: 'lecture' | 'lab' | 'practice'
+  is_recurring: boolean
+  start_date?: string | null
+  end_date?: string | null
+  week_number?: 1 | 2
+  schedule_start_date?: string | null
+  created_at: string
+  updated_at: string
+  subject_name?: string
+  subject_code?: string
+  teacher_name?: string
+  teacher_email?: string
 }
 
-export async function getSchedulesByWeek(weekNumber: 1 | 2) {
+export interface ScheduleSession {
+  id: string
+  schedule_id?: string | null
+  date: string
+  start_time: string
+  end_time: string
+  room?: string | null
+  is_cancelled: boolean
+  created_at: string
+  subject_id?: string
+  teacher_id?: string
+  subject_name?: string
+  teacher_name?: string
+}
+
+export type ScheduleInsert = Omit<Schedule, 'id' | 'created_at' | 'updated_at' | 'subject_name' | 'subject_code' | 'teacher_name' | 'teacher_email'>
+export type ScheduleUpdate = Partial<ScheduleInsert>
+export type ScheduleSessionInsert = Omit<ScheduleSession, 'id' | 'created_at' | 'subject_id' | 'teacher_id' | 'subject_name' | 'teacher_name'>
+
+export async function getSchedules(weekNumber?: 1 | 2): Promise<Schedule[]> {
+  const query = weekNumber ? `?weekNumber=${weekNumber}` : ''
+  return api.get<Schedule[]>(`/api/schedules${query}`)
+}
+
+export async function getSchedulesByWeek(weekNumber: 1 | 2): Promise<Schedule[]> {
   return getSchedules(weekNumber)
 }
 
-export async function createSchedule(schedule: ScheduleInsert) {
-  const { data, error } = await supabase
-    .from('schedules')
-    .insert(schedule)
-    .select()
-    .single()
-  
-  if (error) throw error
-  await logActivity({
-    action: 'schedule_created',
-    entityType: 'schedule',
-    entityId: data.id,
-    details: { день: data.day_of_week, время: `${data.start_time} - ${data.end_time}` },
-  })
-  return data as Schedule
+export async function createSchedule(schedule: ScheduleInsert): Promise<Schedule> {
+  return api.post<Schedule>('/api/schedules', schedule)
 }
 
-export async function getScheduleSessions(startDate: string, endDate: string) {
-  const { data, error } = await supabase
-    .from('schedule_sessions')
-    .select(`
-      *,
-      schedules (
-        subjects (name),
-        teachers (full_name)
-      )
-    `)
-    .gte('date', startDate)
-    .lte('date', endDate)
-    .eq('is_cancelled', false)
-    .order('date')
-    .order('start_time')
-  
-  if (error) throw error
-  return data
+export async function getScheduleSessions(startDate: string, endDate: string): Promise<ScheduleSession[]> {
+  return api.get<ScheduleSession[]>(`/api/schedules/sessions?startDate=${startDate}&endDate=${endDate}`)
 }
 
-export async function createScheduleSession(session: ScheduleSessionInsert) {
-  const { data, error } = await supabase
-    .from('schedule_sessions')
-    .insert(session)
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data as ScheduleSession
+export async function createScheduleSession(session: ScheduleSessionInsert): Promise<ScheduleSession> {
+  return api.post<ScheduleSession>('/api/schedules/sessions', session)
 }
 
 export async function generateSessionsForSchedule(
   scheduleId: string,
   startDate: Date,
   endDate: Date
-) {
-  const schedule = await supabase
-    .from('schedules')
-    .select('*')
-    .eq('id', scheduleId)
-    .single()
-
-  if (schedule.error) throw schedule.error
-
-  const scheduleData = schedule.data
-  const sessions: ScheduleSessionInsert[] = []
-
-  // If schedule has week_number, only generate sessions for that week
-  if (scheduleData.week_number && scheduleData.schedule_start_date) {
-    const weekDates = getWeekDatesInRange(
-      new Date(scheduleData.schedule_start_date),
-      scheduleData.week_number as 1 | 2,
-      startDate,
-      endDate
-    )
-
-    weekDates.forEach((date) => {
-      if (date.getDay() === scheduleData.day_of_week) {
-        sessions.push({
-          schedule_id: scheduleId,
-          date: format(date, 'yyyy-MM-dd'),
-          start_time: scheduleData.start_time,
-          end_time: scheduleData.end_time,
-          room: scheduleData.room,
-          is_cancelled: false,
-        })
-      }
-    })
-  } else {
-    // Legacy behavior: generate for all matching days
-    let currentDate = startDate
-    while (currentDate <= endDate) {
-      if (currentDate.getDay() === scheduleData.day_of_week) {
-        sessions.push({
-          schedule_id: scheduleId,
-          date: format(currentDate, 'yyyy-MM-dd'),
-          start_time: scheduleData.start_time,
-          end_time: scheduleData.end_time,
-          room: scheduleData.room,
-          is_cancelled: false,
-        })
-      }
-      currentDate = addDays(currentDate, 1)
-    }
-  }
-
-  if (sessions.length > 0) {
-    const { error } = await supabase
-      .from('schedule_sessions')
-      .insert(sessions)
-      .select()
-
-    if (error) throw error
-  }
-
-  return sessions
+): Promise<ScheduleSessionInsert[]> {
+  return api.post<ScheduleSessionInsert[]>(`/api/schedules/${scheduleId}/generate-sessions`, {
+    startDate: format(startDate, 'yyyy-MM-dd'),
+    endDate: format(endDate, 'yyyy-MM-dd'),
+  })
 }
 
-export async function updateSchedule(id: string, updates: Database['public']['Tables']['schedules']['Update']) {
-  const { data, error } = await supabase
-    .from('schedules')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
-  
-  if (error) throw error
-  await logActivity({
-    action: 'schedule_updated',
-    entityType: 'schedule',
-    entityId: data.id,
-    details: { изменения: updates },
-  })
-  return data as Schedule
+export async function updateSchedule(id: string, updates: ScheduleUpdate): Promise<Schedule> {
+  return api.put<Schedule>(`/api/schedules/${id}`, updates)
 }
 
-export async function deleteSchedule(id: string) {
-  const { error } = await supabase
-    .from('schedules')
-    .delete()
-    .eq('id', id)
-  
-  if (error) throw error
-  await logActivity({
-    action: 'schedule_deleted',
-    entityType: 'schedule',
-    entityId: id,
-  })
+export async function deleteSchedule(id: string): Promise<void> {
+  return api.delete(`/api/schedules/${id}`)
 }
 
 export function getCurrentWeekNumber(scheduleStartDate: Date | string | null): 1 | 2 {
@@ -186,4 +88,3 @@ export function getCurrentWeekNumber(scheduleStartDate: Date | string | null): 1
   const startDate = typeof scheduleStartDate === 'string' ? new Date(scheduleStartDate) : scheduleStartDate
   return calculateCurrentWeek(startDate)
 }
-

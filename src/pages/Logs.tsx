@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { useQuery } from '@tanstack/react-query'
+import { getActivityLogs } from '../services/activityLogs'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Button from '../components/ui/Button'
@@ -12,40 +12,29 @@ export default function Logs() {
   const [endDate, setEndDate] = useState('')
   const [actionTypeFilter, setActionTypeFilter] = useState('')
 
-  const queryClient = useQueryClient()
-
   const { data: logs, isLoading } = useQuery({
     queryKey: ['activity-logs', startDate, endDate, actionTypeFilter],
     queryFn: async () => {
-      let query = supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200)
-
+      const allLogs = await getActivityLogs(200)
+      
+      // Фильтруем на клиенте (можно перенести на сервер позже)
+      let filtered = allLogs
+      
       if (startDate) {
-        query = query.gte('created_at', `${startDate}T00:00:00`)
+        const start = new Date(`${startDate}T00:00:00`)
+        filtered = filtered.filter((log: any) => new Date(log.created_at) >= start)
       }
+      
       if (endDate) {
-        query = query.lte('created_at', `${endDate}T23:59:59`)
+        const end = new Date(`${endDate}T23:59:59`)
+        filtered = filtered.filter((log: any) => new Date(log.created_at) <= end)
       }
+      
       if (actionTypeFilter) {
-        query = query.eq('action_type', actionTypeFilter)
+        filtered = filtered.filter((log: any) => log.action_type === actionTypeFilter)
       }
-
-      const { data, error } = await query
-      if (error) throw error
-      return data
-    },
-  })
-
-  const clearLogsMutation = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from('activity_logs').delete().neq('id', '')
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity-logs'] })
+      
+      return filtered
     },
   })
 
@@ -104,13 +93,10 @@ export default function Logs() {
           <Button
             variant="secondary"
             onClick={() => {
-              if (confirm('Очистить все логи?')) {
-                clearLogsMutation.mutate()
-              }
+              alert('Функция очистки логов будет доступна в будущем. Используйте phpMyAdmin для очистки данных.')
             }}
-            disabled={clearLogsMutation.isPending}
           >
-            {clearLogsMutation.isPending ? 'Очистка...' : 'Очистить логи'}
+            Очистить логи
           </Button>
         </div>
       </Card>
@@ -137,12 +123,12 @@ export default function Logs() {
                           {actionTypes.find((a) => a.value === log.action_type)?.label || log.action_type}
                         </span>
                       </div>
-                    <p className="text-sm text-gray-600">
-                      Пользователь: {log.user_id || 'неизвестно'}
-                    </p>
+                      <p className="text-sm text-gray-600">
+                        Пользователь: {log.user_email || log.user_id || 'неизвестно'}
+                      </p>
                       {log.details && (
                         <p className="text-sm text-gray-500 mt-1">
-                        Детали: {formatDetails(log.details)}
+                          Детали: {formatDetails(log.details)}
                         </p>
                       )}
                       <p className="text-xs text-gray-400 mt-2">

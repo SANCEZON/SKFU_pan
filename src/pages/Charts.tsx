@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { format, subDays, subWeeks, subMonths, startOfWeek, endOfWeek, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns'
@@ -8,8 +8,6 @@ import { translateStatus } from '../utils/statusTranslations'
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -29,19 +27,7 @@ export default function Charts() {
   const { data: attendanceData } = useQuery({
     queryKey: ['attendance-charts', startDate, endDate],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('attendance_records')
-        .select(`
-          *,
-          schedule_sessions (date),
-          students (full_name)
-        `)
-        .gte('schedule_sessions.date', startDate)
-        .lte('schedule_sessions.date', endDate)
-        .neq('status', 'present')
-
-      if (error) throw error
-      return data
+      return api.get<any[]>(`/api/attendance/charts?startDate=${startDate}&endDate=${endDate}`)
     },
   })
 
@@ -57,7 +43,7 @@ export default function Charts() {
       return days.map((day) => {
         const dayStr = format(day, 'yyyy-MM-dd')
         const count = attendanceData.filter(
-          (record: any) => record.schedule_sessions?.date === dayStr
+          (record: any) => record.session_date === dayStr
         ).length
         return {
           date: format(day, 'EEE d', { weekStartsOn: 1 }),
@@ -81,7 +67,7 @@ export default function Charts() {
         const weekEndStr = format(weekEnd, 'yyyy-MM-dd')
 
         const count = attendanceData.filter((record: any) => {
-          const recordDate = record.schedule_sessions?.date
+          const recordDate = record.session_date
           return recordDate >= weekStartStr && recordDate <= weekEndStr
         }).length
 
@@ -101,7 +87,7 @@ export default function Charts() {
       return months.map((month) => {
         const monthStr = format(month, 'yyyy-MM')
         const count = attendanceData.filter((record: any) => {
-          const recordDate = record.schedule_sessions?.date
+          const recordDate = record.session_date
           return recordDate?.startsWith(monthStr)
         }).length
 
@@ -134,33 +120,33 @@ export default function Charts() {
 
     if (period === 'week') {
       return attendanceData
-        .filter((record: any) => record.schedule_sessions?.date === periodData.fullDate)
+        .filter((record: any) => record.session_date === periodData.fullDate)
         .map((record: any) => ({
-          name: record.students?.full_name || 'Студент',
+          name: record.student_name || 'Студент',
           status: record.status,
-          date: record.schedule_sessions?.date,
+          date: record.session_date,
         }))
     } else if (period === 'month') {
       return attendanceData
         .filter((record: any) => {
-          const recordDate = record.schedule_sessions?.date
+          const recordDate = record.session_date
           return recordDate >= periodData.weekStart && recordDate <= periodData.weekEnd
         })
         .map((record: any) => ({
-          name: record.students?.full_name || 'Студент',
+          name: record.student_name || 'Студент',
           status: record.status,
-          date: record.schedule_sessions?.date,
+          date: record.session_date,
         }))
     } else {
       return attendanceData
         .filter((record: any) => {
-          const recordDate = record.schedule_sessions?.date
+          const recordDate = record.session_date
           return recordDate?.startsWith(periodData.monthStr)
         })
         .map((record: any) => ({
-          name: record.students?.full_name || 'Студент',
+          name: record.student_name || 'Студент',
           status: record.status,
-          date: record.schedule_sessions?.date,
+          date: record.session_date,
         }))
     }
   }

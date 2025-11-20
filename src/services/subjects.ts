@@ -1,27 +1,18 @@
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
+import { api } from '../lib/api'
 
-type Subject = Database['public']['Tables']['subjects']['Row']
-type SubjectInsert = Database['public']['Tables']['subjects']['Insert']
-
-export async function getSubjects() {
-  const { data, error } = await supabase
-    .from('subjects')
-    .select('*')
-    .order('name')
-  
-  if (error) throw error
-  return data as Subject[]
+export interface Subject {
+  id: string
+  name: string
+  code?: string | null
+  created_at: string
 }
 
-export async function createSubject(subject: SubjectInsert) {
-  const { data, error } = await supabase
-    .from('subjects')
-    .insert(subject)
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data as Subject
+export type SubjectInsert = Omit<Subject, 'id' | 'created_at'>
+
+export async function getSubjects(): Promise<Subject[]> {
+  return api.get<Subject[]>('/api/subjects')
 }
 
+export async function createSubject(subject: SubjectInsert): Promise<Subject> {
+  return api.post<Subject>('/api/subjects', subject)
+}

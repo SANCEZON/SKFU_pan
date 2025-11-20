@@ -1,19 +1,23 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
-import { Database } from '../types/database.types'
 
-type AbsenceReason = Database['public']['Tables']['absence_reasons']['Row']
-type AbsenceReasonInsert = Database['public']['Tables']['absence_reasons']['Insert']
+interface AbsenceReason {
+  id: string
+  name: string
+  code: string
+  is_active: boolean
+  created_at: string
+}
 
 export default function Settings() {
   const [isReasonModalOpen, setIsReasonModalOpen] = useState(false)
   const [editingReason, setEditingReason] = useState<AbsenceReason | null>(null)
-  const [reasonForm, setReasonForm] = useState<AbsenceReasonInsert>({
+  const [reasonForm, setReasonForm] = useState<Omit<AbsenceReason, 'id' | 'created_at'>>({
     name: '',
     code: '',
     is_active: true,
@@ -23,31 +27,17 @@ export default function Settings() {
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('settings').select('*')
-      if (error) throw error
-      return data
-    },
+    queryFn: () => api.get<Record<string, any>>('/api/settings'),
   })
 
   const { data: absenceReasons } = useQuery({
     queryKey: ['absence-reasons'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('absence_reasons')
-        .select('*')
-        .order('name')
-      if (error) throw error
-      return data
-    },
+    queryFn: () => api.get<AbsenceReason[]>('/api/attendance/reasons/all'),
   })
 
   const updateSettingMutation = useMutation({
     mutationFn: async ({ key, value }: { key: string; value: string }) => {
-      const { error } = await supabase
-        .from('settings')
-        .upsert({ key, value, type: 'string' }, { onConflict: 'key' })
-      if (error) throw error
+      return api.put(`/api/settings/${key}`, { value, type: 'string' })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -55,14 +45,8 @@ export default function Settings() {
   })
 
   const createReasonMutation = useMutation({
-    mutationFn: async (reason: AbsenceReasonInsert) => {
-      const { data, error } = await supabase
-        .from('absence_reasons')
-        .insert(reason)
-        .select()
-        .single()
-      if (error) throw error
-      return data
+    mutationFn: async (reason: Omit<AbsenceReason, 'id' | 'created_at'>) => {
+      return api.post<AbsenceReason>('/api/attendance/reasons', reason)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['absence-reasons'] })
@@ -72,14 +56,7 @@ export default function Settings() {
 
   const updateReasonMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: Partial<AbsenceReason> }) => {
-      const { data, error } = await supabase
-        .from('absence_reasons')
-        .update(reason)
-        .eq('id', id)
-        .select()
-        .single()
-      if (error) throw error
-      return data
+      return api.put<AbsenceReason>(`/api/attendance/reasons/${id}`, reason)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['absence-reasons'] })
@@ -87,8 +64,8 @@ export default function Settings() {
     },
   })
 
-  const groupName = settings?.find((s) => s.key === 'group_name')?.value || ''
-  const timezone = settings?.find((s) => s.key === 'timezone')?.value || ''
+  const groupName = settings?.group_name || ''
+  const timezone = settings?.timezone || ''
 
   const handleOpenReasonModal = (reason?: AbsenceReason) => {
     if (reason) {

@@ -1,73 +1,62 @@
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
+import { api } from '../lib/api'
 
-type Invitation = Database['public']['Tables']['user_invitations']['Row']
-type InvitationInsert = Database['public']['Tables']['user_invitations']['Insert']
-type ApprovalLog = Database['public']['Tables']['approval_logs']['Row']
-type UserProfile = Database['public']['Tables']['user_profiles']['Row']
-
-export async function getInvitations() {
-  const { data, error } = await supabase
-    .from('user_invitations')
-    .select('*')
-    .order('created_at', { ascending: false })
-
-  if (error) throw error
-  return data as Invitation[]
+export interface Invitation {
+  id: string
+  email: string
+  token: string
+  status: 'pending' | 'accepted' | 'rejected' | 'revoked' | 'expired'
+  created_by?: string | null
+  approved_by?: string | null
+  note?: string | null
+  expires_at?: string | null
+  used_at?: string | null
+  created_at: string
+  updated_at: string
 }
 
-export async function getPendingProfiles() {
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-
-  if (error) throw error
-  return data as UserProfile[]
+export interface UserProfile {
+  user_id: string
+  full_name?: string | null
+  user_email?: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  invitation_id?: string | null
+  created_at: string
+  updated_at: string
 }
 
-export async function getApprovalLogs(limit = 50) {
-  const { data, error } = await supabase
-    .from('approval_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit)
-
-  if (error) throw error
-  return data as ApprovalLog[]
+export interface ApprovalLog {
+  id: string
+  invitation_id?: string | null
+  target_email: string
+  action: 'invited' | 'approved' | 'rejected' | 'revoked'
+  acted_by?: string | null
+  details?: string | null
+  created_at: string
 }
 
-export async function createInvitation(payload: Pick<InvitationInsert, 'email' | 'expires_at' | 'note'>) {
-  const token = crypto.randomUUID()
-  const { data, error } = await supabase
-    .from('user_invitations')
-    .insert({
-      email: payload.email.toLowerCase(),
-      token,
-      expires_at: payload.expires_at,
-      note: payload.note,
-    })
-    .select()
-    .single()
+export type InvitationInsert = Omit<Invitation, 'id' | 'created_at' | 'updated_at' | 'token' | 'status'>
 
-  if (error) throw error
-  return data as Invitation
+export async function getInvitations(): Promise<Invitation[]> {
+  return api.get<Invitation[]>('/api/invitations')
 }
 
-export async function updateInvitationStatus(id: string, status: Invitation['status'], userId?: string | null) {
-  const { data, error } = await supabase
-    .from('user_invitations')
-    .update({
-      status,
-      approved_by: userId || null,
-    })
-    .eq('id', id)
-    .select()
-    .single()
+export async function getPendingProfiles(): Promise<UserProfile[]> {
+  return api.get<UserProfile[]>('/api/invitations/pending-profiles')
+}
 
-  if (error) throw error
-  return data as Invitation
+export async function getApprovalLogs(limit = 50): Promise<ApprovalLog[]> {
+  return api.get<ApprovalLog[]>(`/api/invitations/approval-logs?limit=${limit}`)
+}
+
+export async function createInvitation(payload: Pick<InvitationInsert, 'email' | 'expires_at' | 'note'>): Promise<Invitation> {
+  return api.post<Invitation>('/api/invitations', payload)
+}
+
+export async function updateInvitationStatus(id: string, status: Invitation['status'], userId?: string | null): Promise<Invitation> {
+  if (status === 'accepted') {
+    return api.put<Invitation>(`/api/invitations/${id}/approve`)
+  }
+  return api.put<Invitation>(`/api/invitations/${id}/status`, { status })
 }
 
 export async function logApprovalAction(entry: {
@@ -76,32 +65,14 @@ export async function logApprovalAction(entry: {
   action: ApprovalLog['action']
   acted_by?: string | null
   details?: string | null
-}) {
-  const { error } = await supabase.from('approval_logs').insert(entry)
-  if (error) throw error
+}): Promise<void> {
+  // Логирование происходит на сервере
 }
 
-export async function approveProfile(userId: string) {
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .update({ status: 'approved' })
-    .eq('user_id', userId)
-    .select()
-    .single()
-
-  if (error) throw error
-  return data as UserProfile
+export async function approveProfile(userId: string): Promise<UserProfile> {
+  return api.put<UserProfile>(`/api/invitations/profile/${userId}/approve`)
 }
 
-export async function rejectProfile(userId: string) {
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .update({ status: 'rejected' })
-    .eq('user_id', userId)
-    .select()
-    .single()
-
-  if (error) throw error
-  return data as UserProfile
+export async function rejectProfile(userId: string): Promise<UserProfile> {
+  return api.put<UserProfile>(`/api/invitations/profile/${userId}/reject`)
 }
-

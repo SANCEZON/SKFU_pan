@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
+import { getScheduleSessions } from '../services/schedules'
+import { getStudents } from '../services/students'
+import { getReports } from '../services/reports'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import { Link } from 'react-router-dom'
@@ -26,21 +28,9 @@ export default function Dashboard() {
   const { data: todaySessions } = useQuery({
     queryKey: ['today-sessions', today],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('schedule_sessions')
-        .select(`
-          *,
-          schedules (
-            subjects (name),
-            teachers (full_name)
-          )
-        `)
-        .eq('date', today)
-        .eq('is_cancelled', false)
-        .order('start_time')
-      
-      if (error) throw error
-      return data
+      const sessions = await getScheduleSessions(today, today)
+      return sessions.filter((s: any) => s.date === today && !s.is_cancelled)
+        .sort((a: any, b: any) => a.start_time.localeCompare(b.start_time))
     },
     refetchInterval: 30000, // Обновлять каждые 30 секунд
     refetchOnWindowFocus: true, // Обновлять при возврате фокуса
@@ -49,14 +39,14 @@ export default function Dashboard() {
   const { data: stats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      const [studentsRes, reportsRes] = await Promise.all([
-        supabase.from('students').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-        supabase.from('reports').select('id', { count: 'exact', head: true }),
+      const [students, reports] = await Promise.all([
+        getStudents(),
+        getReports(),
       ])
       
       return {
-        activeStudents: studentsRes.count || 0,
-        totalReports: reportsRes.count || 0,
+        activeStudents: students.filter((s: any) => s.status === 'active').length,
+        totalReports: reports.length,
       }
     },
     refetchInterval: 60000, // Обновлять статистику каждую минуту
@@ -124,10 +114,10 @@ export default function Dashboard() {
               >
                 <div>
                   <p className="font-medium text-gray-900">
-                    {session.schedules?.subjects?.name || 'Предмет'}
+                    {session.subject_name || 'Предмет'}
                   </p>
                   <p className="text-sm text-gray-600 mt-1">
-                    {session.schedules?.teachers?.full_name || 'Преподаватель'} • {session.start_time} - {session.end_time}
+                    {session.teacher_name || 'Преподаватель'} • {session.start_time} - {session.end_time}
                     {session.room && ` • ${session.room}`}
                   </p>
                 </div>
@@ -144,4 +134,3 @@ export default function Dashboard() {
     </div>
   )
 }
-

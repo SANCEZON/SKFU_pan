@@ -1,78 +1,35 @@
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
-import { logActivity } from './activityLogs'
+import { api } from '../lib/api'
 
-type Student = Database['public']['Tables']['students']['Row']
-type StudentInsert = Database['public']['Tables']['students']['Insert']
-type StudentUpdate = Database['public']['Tables']['students']['Update']
-
-export async function getStudents() {
-  const { data, error } = await supabase
-    .from('students')
-    .select('*')
-    .order('full_name')
-  
-  if (error) throw error
-  return data as Student[]
+export interface Student {
+  id: string
+  full_name: string
+  telegram?: string | null
+  phone?: string | null
+  status: 'active' | 'expelled'
+  group_id?: string | null
+  created_at: string
+  updated_at: string
 }
 
-export async function getStudent(id: string) {
-  const { data, error } = await supabase
-    .from('students')
-    .select('*')
-    .eq('id', id)
-    .single()
-  
-  if (error) throw error
-  return data as Student
+export type StudentInsert = Omit<Student, 'id' | 'created_at' | 'updated_at'>
+export type StudentUpdate = Partial<StudentInsert>
+
+export async function getStudents(): Promise<Student[]> {
+  return api.get<Student[]>('/api/students')
 }
 
-export async function createStudent(student: StudentInsert) {
-  const { data, error } = await supabase
-    .from('students')
-    .insert(student)
-    .select()
-    .single()
-  
-  if (error) throw error
-  await logActivity({
-    action: 'student_created',
-    entityType: 'student',
-    entityId: data.id,
-    details: { студент: data.full_name },
-  })
-  return data as Student
+export async function getStudent(id: string): Promise<Student> {
+  return api.get<Student>(`/api/students/${id}`)
 }
 
-export async function updateStudent(id: string, student: StudentUpdate) {
-  const { data, error } = await supabase
-    .from('students')
-    .update(student)
-    .eq('id', id)
-    .select()
-    .single()
-  
-  if (error) throw error
-  await logActivity({
-    action: 'student_updated',
-    entityType: 'student',
-    entityId: data.id,
-    details: { студент: data.full_name },
-  })
-  return data as Student
+export async function createStudent(student: StudentInsert): Promise<Student> {
+  return api.post<Student>('/api/students', student)
 }
 
-export async function deleteStudent(id: string) {
-  const { error } = await supabase
-    .from('students')
-    .delete()
-    .eq('id', id)
-  
-  if (error) throw error
-  await logActivity({
-    action: 'student_deleted',
-    entityType: 'student',
-    entityId: id,
-  })
+export async function updateStudent(id: string, student: StudentUpdate): Promise<Student> {
+  return api.put<Student>(`/api/students/${id}`, student)
 }
 
+export async function deleteStudent(id: string): Promise<void> {
+  return api.delete(`/api/students/${id}`)
+}

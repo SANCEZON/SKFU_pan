@@ -1,60 +1,33 @@
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
+import { api } from '../lib/api'
 
-type Teacher = Database['public']['Tables']['teachers']['Row']
-type TeacherInsert = Database['public']['Tables']['teachers']['Insert']
-type TeacherUpdate = Database['public']['Tables']['teachers']['Update']
-
-export async function getTeachers() {
-  const { data, error } = await supabase
-    .from('teachers')
-    .select('*')
-    .order('full_name')
-  
-  if (error) throw error
-  return data as Teacher[]
+export interface Teacher {
+  id: string
+  full_name: string
+  email?: string | null
+  phone?: string | null
+  created_at: string
+  updated_at: string
 }
 
-export async function getTeacher(id: string) {
-  const { data, error } = await supabase
-    .from('teachers')
-    .select('*')
-    .eq('id', id)
-    .single()
-  
-  if (error) throw error
-  return data as Teacher
+export type TeacherInsert = Omit<Teacher, 'id' | 'created_at' | 'updated_at'>
+export type TeacherUpdate = Partial<TeacherInsert>
+
+export async function getTeachers(): Promise<Teacher[]> {
+  return api.get<Teacher[]>('/api/teachers')
 }
 
-export async function createTeacher(teacher: TeacherInsert) {
-  const { data, error } = await supabase
-    .from('teachers')
-    .insert(teacher)
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data as Teacher
+export async function getTeacher(id: string): Promise<Teacher> {
+  return api.get<Teacher>(`/api/teachers/${id}`)
 }
 
-export async function updateTeacher(id: string, teacher: TeacherUpdate) {
-  const { data, error } = await supabase
-    .from('teachers')
-    .update(teacher)
-    .eq('id', id)
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data as Teacher
+export async function createTeacher(teacher: TeacherInsert): Promise<Teacher> {
+  return api.post<Teacher>('/api/teachers', teacher)
 }
 
-export async function deleteTeacher(id: string) {
-  const { error } = await supabase
-    .from('teachers')
-    .delete()
-    .eq('id', id)
-  
-  if (error) throw error
+export async function updateTeacher(id: string, teacher: TeacherUpdate): Promise<Teacher> {
+  return api.put<Teacher>(`/api/teachers/${id}`, teacher)
 }
 
+export async function deleteTeacher(id: string): Promise<void> {
+  return api.delete(`/api/teachers/${id}`)
+}

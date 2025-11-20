@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSchedulesByWeek, createSchedule, getScheduleSessions, generateSessionsForSchedule, deleteSchedule, createScheduleSession, updateSchedule } from '../services/schedules'
 import { getSubjects, createSubject } from '../services/subjects'
 import { useTeachers } from '../hooks/useTeachers'
-import { supabase } from '../lib/supabase'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -138,13 +137,10 @@ export default function Schedule() {
         }
 
         // Обновляем расписание с датами
-        const { error: updateError } = await supabase
-          .from('schedules')
-          .update({ start_date: startDate, end_date: endDate })
-          .eq('id', schedule.id)
-
-        if (updateError) {
-          console.error('Error updating schedule:', updateError)
+        try {
+          await updateSchedule(schedule.id, { start_date: startDate, end_date: endDate })
+        } catch (error) {
+          console.error('Error updating schedule:', error)
           alert('Ошибка при обновлении расписания')
           return
         }

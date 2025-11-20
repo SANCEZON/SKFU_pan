@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getReports, getReport, deleteReport } from '../services/reports'
 import { getAttendanceForSession } from '../services/attendance'
-import { supabase } from '../lib/supabase'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -57,9 +56,9 @@ export default function Reports() {
     const absentStudents = attendance
       .filter((a: any) => a.status !== 'present')
       .map((a: any) => ({
-        'ФИО': a.students?.full_name || '',
+        'ФИО': a.student_name || '',
         'Статус': translateStatus(a.status),
-        'Причина': a.absence_reasons?.name || '',
+        'Причина': a.reason_name || '',
         'Заметка': a.note || '',
       }))
 
@@ -126,7 +125,15 @@ export default function Reports() {
         ) : reports && reports.length > 0 ? (
           <div className="space-y-4">
             {reports.map((report: any) => {
-              const session = report.schedule_sessions
+              const session = report.schedule_sessions || {
+                date: report.date,
+                start_time: report.start_time,
+                end_time: report.end_time,
+                schedules: {
+                  subjects: { name: report.subject_name },
+                  teachers: { full_name: report.teacher_name },
+                },
+              }
               return (
                 <ReportItem
                   key={report.id}
@@ -164,16 +171,16 @@ export default function Reports() {
           <div className="space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900 mb-2">
-                {reportDetails.schedule_sessions?.schedules?.subjects?.name || 'Предмет'}
+                {reportDetails.subject_name || reportDetails.schedule_sessions?.schedules?.subjects?.name || 'Предмет'}
               </h3>
               <p className="text-sm text-gray-600">
-                {reportDetails.schedule_sessions?.schedules?.teachers?.full_name || 'Преподаватель'}
+                {reportDetails.teacher_name || reportDetails.schedule_sessions?.schedules?.teachers?.full_name || 'Преподаватель'}
               </p>
               <p className="text-sm text-gray-600">
-                {reportDetails.schedule_sessions?.date &&
-                  format(new Date(reportDetails.schedule_sessions.date), 'd MMMM yyyy')}{' '}
-                • {reportDetails.schedule_sessions?.start_time} -{' '}
-                {reportDetails.schedule_sessions?.end_time}
+                {reportDetails.date && format(new Date(reportDetails.date), 'd MMMM yyyy')}
+                {reportDetails.schedule_sessions?.date && format(new Date(reportDetails.schedule_sessions.date), 'd MMMM yyyy')}{' '}
+                • {reportDetails.start_time || reportDetails.schedule_sessions?.start_time} -{' '}
+                {reportDetails.end_time || reportDetails.schedule_sessions?.end_time}
               </p>
             </div>
 
@@ -191,11 +198,11 @@ export default function Reports() {
                         className="p-3 bg-gray-50 rounded-lg border border-gray-200"
                       >
                         <div className="font-medium text-gray-900">
-                          {record.students?.full_name || 'Студент'}
+                          {record.student_name || record.students?.full_name || 'Студент'}
                         </div>
                         <div className="text-sm text-gray-600 mt-1">
                           Статус: {translateStatus(record.status)} • Причина:{' '}
-                          {record.absence_reasons?.name || 'не указана'}
+                          {record.reason_name || record.absence_reasons?.name || 'не указана'}
                         </div>
                         {record.note && (
                           <div className="text-sm text-gray-500 mt-1">Заметка: {record.note}</div>
@@ -225,17 +232,9 @@ function ReportItem({ report, session, onView, onExport, onDelete }: {
   const { data: absentCount } = useQuery({
     queryKey: ['absent-count', report.session_id],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from('attendance_records')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', report.session_id)
-        .neq('status', 'present')
-      
-      if (error) {
-        console.error('Error getting absent count:', error)
-        return 0
-      }
-      return count || 0
+      if (!report.session_id) return 0
+      const attendance = await getAttendanceForSession(report.session_id)
+      return attendance.filter((a: any) => a.status !== 'present').length
     },
   })
 
@@ -244,12 +243,13 @@ function ReportItem({ report, session, onView, onExport, onDelete }: {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-gray-900">
-            {session?.schedules?.subjects?.name || 'Предмет'}
+            {session?.schedules?.subjects?.name || report.subject_name || 'Предмет'}
           </h3>
           <p className="text-sm text-gray-600 mt-1">
-            {session?.schedules?.teachers?.full_name || 'Преподаватель'} •{' '}
-            {session?.date && format(new Date(session.date), 'd MMMM yyyy')} •{' '}
-            {session?.start_time} - {session?.end_time}
+            {session?.schedules?.teachers?.full_name || report.teacher_name || 'Преподаватель'} •{' '}
+            {session?.date && format(new Date(session.date), 'd MMMM yyyy')}
+            {report.date && format(new Date(report.date), 'd MMMM yyyy')} •{' '}
+            {session?.start_time || report.start_time} - {session?.end_time || report.end_time}
           </p>
           <p className="text-sm text-gray-500 mt-1">
             Отправлен: {format(new Date(report.created_at), 'd MMM yyyy, HH:mm')} •{' '}

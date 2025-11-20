@@ -1,0 +1,71 @@
+services:
+  mysql:
+    image: mariadb:10.11
+    container_name: attendance_db
+    # Не пробрасываем порт наружу - только внутри Docker сети
+    ports: []
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-attendance_db}
+      MYSQL_USER: ${DB_USER:-app_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - attendance_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: attendance_phpmyadmin
+    # Закрываем от внешнего доступа - доступ через nginx
+    ports: []
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: ${DB_ROOT_PASSWORD}
+      UPLOAD_LIMIT: 300M
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - attendance_network
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: attendance_api
+    # API доступен только локально - доступ через nginx
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-app_user}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-attendance_db}
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - attendance_network
+
+volumes:
+  mysql_data:
+
+networks:
+  attendance_network:
+    driver: bridge
+

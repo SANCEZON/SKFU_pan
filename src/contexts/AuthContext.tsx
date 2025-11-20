@@ -1,13 +1,23 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { User, Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
-import { Database } from '../types/database.types'
+import { api } from '../lib/api'
 
-type UserProfile = Database['public']['Tables']['user_profiles']['Row']
+interface User {
+  id: string
+  email: string
+}
+
+interface UserProfile {
+  user_id: string
+  full_name?: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  invitation_id?: string | null
+  created_at: string
+  updated_at: string
+}
 
 interface AuthContextType {
   user: User | null
-  session: Session | null
+  session: { token: string } | null
   loading: boolean
   profile: UserProfile | null
   profileLoading: boolean
@@ -21,7 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
+  const [session, setSession] = useState<{ token: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
@@ -34,64 +44,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setProfileLoading(true)
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('user_id', currentUser.id)
-      .single()
-
-    if (error) {
-      if ((error as any).code === 'PGRST116') {
-        const { data: createdProfile, error: createError } = await supabase
-          .from('user_profiles')
-          .insert({ user_id: currentUser.id, status: 'pending' })
-          .select()
-          .single()
-
-        if (createError) {
-          console.error(createError)
-          setProfile(null)
-        } else {
-          setProfile(createdProfile)
-        }
-      } else {
-        console.error(error)
-        setProfile(null)
-      }
-    } else {
-      setProfile(data)
+    try {
+      const data = await api.getCurrentUser()
+      setProfile(data.profile)
+    } catch (error) {
+      console.error('Failed to fetch profile:', error)
+      setProfile(null)
     }
     setProfileLoading(false)
   }
 
   useEffect(() => {
-    // Получаем текущую сессию
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-      fetchProfile(session?.user ?? null)
-    })
+    // Проверяем наличие токена и загружаем пользователя
+    const initAuth = async () => {
+      // Если нет токена, сразу завершаем загрузку
+      if (!api.isAuthenticated()) {
+        setLoading(false)
+        setProfileLoading(false)
+        return
+      }
 
-    // Слушаем изменения аутентификации
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-      fetchProfile(session?.user ?? null)
-    })
+      // Если есть токен, пытаемся получить пользователя с таймаутом
+      try {
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), 5000)
+        )
+        
+        const userPromise = api.getCurrentUser()
+        const data = await Promise.race([userPromise, timeoutPromise]) as any
+        
+        setUser(data.user)
+        setSession({ token: localStorage.getItem('auth_token')! })
+        setProfile(data.profile)
+      } catch (error: any) {
+        console.error('Failed to get current user:', error)
+        // Очищаем невалидный токен
+        api.logout()
+        setUser(null)
+        setSession(null)
+        setProfile(null)
+      } finally {
+        setLoading(false)
+        setProfileLoading(false)
+      }
+    }
 
-    return () => subscription.unsubscribe()
+    initAuth()
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    if (error) throw error
+    const response = await api.login(email, password)
+    setUser(response.user)
+    setSession({ token: response.token })
+    setProfile(response.profile)
   }
 
   const signUp = async (email: string, password: string, inviteToken?: string) => {
@@ -99,52 +104,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Необходимо ввести код приглашения')
     }
 
-    const { data: invitation, error: inviteError } = await supabase
-      .from('user_invitations')
-      .select('*')
-      .eq('token', inviteToken)
-      .eq('status', 'pending')
-      .single()
-
-    if (inviteError) {
-      throw new Error('Неверный или уже использованный код приглашения')
-    }
-
-    if (invitation.email && invitation.email.toLowerCase() !== email.toLowerCase()) {
-      throw new Error('Этот код приглашения предназначен для другого email')
-    }
-
-    if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
-      throw new Error('Срок действия приглашения истёк')
-    }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-    if (error) throw error
-
-    // Обновляем приглашение
-    await supabase
-      .from('user_invitations')
-      .update({ status: 'accepted', used_at: new Date().toISOString() })
-      .eq('id', invitation.id)
-
-    const { data: currentSession } = await supabase.auth.getSession()
-    const newUser = currentSession.session?.user
-    if (newUser) {
-      await supabase.from('user_profiles').upsert({
-        user_id: newUser.id,
-        status: 'pending',
-        invitation_id: invitation.id,
-      })
-      fetchProfile(newUser)
+    const response = await api.register(email, password, inviteToken)
+    setUser(response.user)
+    setSession({ token: response.token })
+    
+    // Профиль будет создан автоматически на сервере
+    // Загружаем его
+    try {
+      const data = await api.getCurrentUser()
+      setProfile(data.profile)
+    } catch (error) {
+      console.error('Failed to fetch profile after signup:', error)
     }
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+    api.logout()
+    setUser(null)
+    setSession(null)
+    setProfile(null)
   }
 
   return (
@@ -173,4 +151,3 @@ export function useAuth() {
   }
   return context
 }
-

@@ -1,80 +1,41 @@
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useStudent } from '../hooks/useStudents'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import Card from '../components/ui/Card'
-import { format } from 'date-fns'
+import { format, subDays, startOfMonth } from 'date-fns'
 import { translateStatus } from '../utils/statusTranslations'
 
 export default function StudentProfile() {
   const { id } = useParams<{ id: string }>()
+
   const { data: student, isLoading } = useStudent(id || '')
 
-  const { data: attendanceStats } = useQuery({
-    queryKey: ['student-attendance-stats', id],
-    queryFn: async () => {
-      if (!id) return null
+  const now = new Date()
+  const weekStart = format(subDays(now, 7), 'yyyy-MM-dd')
+  const monthStart = format(startOfMonth(now), 'yyyy-MM-dd')
 
-      const now = new Date()
-      const weekStart = format(new Date(now.setDate(now.getDate() - now.getDay() + 1)), 'yyyy-MM-dd')
-      const monthStart = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd')
+  const { data: allRecords } = useQuery({
+    queryKey: ['student-attendance-all', id],
+    queryFn: () => api.get<any[]>(`/api/attendance/student/${id}/stats`),
+    enabled: !!id,
+  })
 
-      const [allRecords, weekRecords, monthRecords] = await Promise.all([
-        supabase
-          .from('attendance_records')
-          .select('*')
-          .eq('student_id', id)
-          .neq('status', 'present'),
-        supabase
-          .from('attendance_records')
-          .select('*')
-          .eq('student_id', id)
-          .neq('status', 'present')
-          .gte('created_at', weekStart),
-        supabase
-          .from('attendance_records')
-          .select('*')
-          .eq('student_id', id)
-          .neq('status', 'present')
-          .gte('created_at', monthStart),
-      ])
+  const { data: weekRecords } = useQuery({
+    queryKey: ['student-attendance-week', id, weekStart],
+    queryFn: () => api.get<any[]>(`/api/attendance/student/${id}/stats?startDate=${weekStart}`),
+    enabled: !!id,
+  })
 
-      return {
-        total: allRecords.data?.length || 0,
-        week: weekRecords.data?.length || 0,
-        month: monthRecords.data?.length || 0,
-        details: allRecords.data || [],
-      }
-    },
+  const { data: monthRecords } = useQuery({
+    queryKey: ['student-attendance-month', id, monthStart],
+    queryFn: () => api.get<any[]>(`/api/attendance/student/${id}/stats?startDate=${monthStart}`),
     enabled: !!id,
   })
 
   const { data: attendanceDetails } = useQuery({
     queryKey: ['student-attendance-details', id],
-    queryFn: async () => {
-      if (!id) return []
-
-      const { data, error } = await supabase
-        .from('attendance_records')
-        .select(`
-          *,
-          schedule_sessions (
-            date,
-            start_time,
-            schedules (
-              subjects (name)
-            )
-          ),
-          absence_reasons (name)
-        `)
-        .eq('student_id', id)
-        .neq('status', 'present')
-        .order('created_at', { ascending: false })
-        .limit(50)
-
-      if (error) throw error
-      return data
-    },
+    queryFn: () => api.get<any[]>(`/api/attendance/student/${id}/stats`),
     enabled: !!id,
   })
 
@@ -108,7 +69,7 @@ export default function StudentProfile() {
           <div className="text-center">
             <p className="text-sm text-gray-600">Всего пропусков</p>
             <p className="text-3xl font-bold text-gray-900 mt-2">
-              {attendanceStats?.total || 0}
+              {allRecords?.length || 0}
             </p>
           </div>
         </Card>
@@ -116,7 +77,7 @@ export default function StudentProfile() {
           <div className="text-center">
             <p className="text-sm text-gray-600">Пропусков за неделю</p>
             <p className="text-3xl font-bold text-gray-900 mt-2">
-              {attendanceStats?.week || 0}
+              {weekRecords?.length || 0}
             </p>
           </div>
         </Card>
@@ -124,7 +85,7 @@ export default function StudentProfile() {
           <div className="text-center">
             <p className="text-sm text-gray-600">Пропусков за месяц</p>
             <p className="text-3xl font-bold text-gray-900 mt-2">
-              {attendanceStats?.month || 0}
+              {monthRecords?.length || 0}
             </p>
           </div>
         </Card>
@@ -142,16 +103,16 @@ export default function StudentProfile() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-gray-900">
-                      {record.schedule_sessions?.schedules?.subjects?.name || 'Предмет'}
+                      {record.subject_name || 'Предмет'}
                     </p>
                     <p className="text-sm text-gray-600 mt-1">
-                      {record.schedule_sessions?.date &&
-                        format(new Date(record.schedule_sessions.date), 'd MMMM yyyy')}{' '}
-                      • {record.schedule_sessions?.start_time}
+                      {record.session_date &&
+                        format(new Date(record.session_date), 'd MMMM yyyy')}{' '}
+                      • {record.start_time}
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
                       Статус: {translateStatus(record.status)} • Причина:{' '}
-                      {record.absence_reasons?.name || 'не указана'}
+                      {record.reason_name || 'не указана'}
                     </p>
                     {record.note && (
                       <p className="text-sm text-gray-500 mt-1">Заметка: {record.note}</p>
